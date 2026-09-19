@@ -1,129 +1,207 @@
 'use strict';
 
-const { DatabaseSync } = require('node:sqlite');
+const fs = require('fs');
+const path = require('path');
+const { createClient } = require('@libsql/client');
 const bcrypt = require('bcryptjs');
 const config = require('./config');
 
-const db = new DatabaseSync(config.dbFile);
+/*
+ * One client for both deployments: a local SQLite file (file:...) for a server
+ * or laptop, or a hosted Turso database (libsql://...) on Vercel, where there
+ * is no disk to keep a file on. Same SQL dialect either way.
+ */
 
-// WAL keeps readers from blocking the writer, which matters once a few people
-// submit their DSR at the same time.
-db.exec('PRAGMA journal_mode = WAL');
-db.exec('PRAGMA foreign_keys = ON');
-db.exec('PRAGMA busy_timeout = 5000');
-
-function migrate() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      employee_code  TEXT    NOT NULL UNIQUE,
-      name           TEXT    NOT NULL,
-      email          TEXT    NOT NULL UNIQUE,
-      password_hash  TEXT    NOT NULL,
-      role           TEXT    NOT NULL DEFAULT 'employee' CHECK (role IN ('employee','admin')),
-      department     TEXT    NOT NULL DEFAULT '',
-      hourly_rate    REAL    NOT NULL DEFAULT 0,
-      is_active      INTEGER NOT NULL DEFAULT 1,
-      must_reset     INTEGER NOT NULL DEFAULT 0,
-      created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS projects (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      code         TEXT    NOT NULL UNIQUE,
-      name         TEXT    NOT NULL,
-      client       TEXT    NOT NULL DEFAULT '',
-      is_billable  INTEGER NOT NULL DEFAULT 1,
-      is_active    INTEGER NOT NULL DEFAULT 1,
-      created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS activities (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      name       TEXT    NOT NULL UNIQUE,
-      is_active  INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS entries (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id     INTEGER NOT NULL REFERENCES users(id),
-      project_id  INTEGER NOT NULL REFERENCES projects(id),
-      activity_id INTEGER NOT NULL REFERENCES activities(id),
-      entry_date  TEXT    NOT NULL,
-      hours       REAL    NOT NULL CHECK (hours > 0 AND hours <= 24),
-      -- The employee's hourly rate at the moment the entry was saved. Snapshotting
-      -- it keeps historical project cost stable when someone's rate later changes.
-      rate_snapshot REAL  NOT NULL DEFAULT 0,
-      description TEXT    NOT NULL DEFAULT '',
-      ticket_ref  TEXT    NOT NULL DEFAULT '',
-      status      TEXT    NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted')),
-      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-      updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_entries_user_date ON entries(user_id, entry_date);
-    CREATE INDEX IF NOT EXISTS idx_entries_date      ON entries(entry_date);
-    CREATE INDEX IF NOT EXISTS idx_entries_project   ON entries(project_id);
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      sid        TEXT PRIMARY KEY,
-      data       TEXT    NOT NULL,
-      expires_at INTEGER NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
-  `);
+if (config.isFileDb) {
+  fs.mkdirSync(path.dirname(path.resolve(config.dbUrl.slice('file:'.length))), { recursive: true });
 }
 
-function seedIfEmpty() {
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM activities').get();
+const client = createClient({
+  url: config.dbUrl,
+  authToken: config.dbAuthToken || undefined,
+});
+
+function toObjects(rs) {
+  return rs.rows.map((row) => {
+    const obj = {};
+    rs.columns.forEach((col, i) => {
+      obj[col] = row[i];
+    });
+    return obj;
+  });
+}
+
+async function all(sql, args = []) {
+  return toObjects(await client.execute({ sql, args }));
+}
+
+async function get(sql, args = []) {
+  return (await all(sql, args))[0] ?? null;
+}
+
+async function run(sql, args = []) {
+  const rs = await client.execute({ sql, args });
+  return {
+    changes: rs.rowsAffected,
+    lastInsertRowid: rs.lastInsertRowid == null ? null : Number(rs.lastInsertRowid),
+  };
+}
+
+/** Runs several writes as one all-or-nothing batch (one round trip on Turso). */
+async function batch(statements) {
+  return client.batch(statements, 'write');
+}
+
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS users (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_code  TEXT    NOT NULL UNIQUE,
+    name           TEXT    NOT NULL,
+    email          TEXT    NOT NULL UNIQUE,
+    password_hash  TEXT    NOT NULL,
+    role           TEXT    NOT NULL DEFAULT 'employee' CHECK (role IN ('employee','admin')),
+    department     TEXT    NOT NULL DEFAULT '',
+    hourly_rate    REAL    NOT NULL DEFAULT 0,
+    is_active      INTEGER NOT NULL DEFAULT 1,
+    must_reset     INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    code         TEXT    NOT NULL UNIQUE,
+    name         TEXT    NOT NULL,
+    client       TEXT    NOT NULL DEFAULT '',
+    is_billable  INTEGER NOT NULL DEFAULT 1,
+    is_active    INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS activities (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    is_active  INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS entries (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    project_id  INTEGER NOT NULL REFERENCES projects(id),
+    activity_id INTEGER NOT NULL REFERENCES activities(id),
+    entry_date  TEXT    NOT NULL,
+    hours       REAL    NOT NULL CHECK (hours > 0 AND hours <= 24),
+    -- The employee's hourly rate at the moment the entry was saved. Snapshotting
+    -- it keeps historical project cost stable when someone's rate later changes.
+    rate_snapshot REAL  NOT NULL DEFAULT 0,
+    description TEXT    NOT NULL DEFAULT '',
+    ticket_ref  TEXT    NOT NULL DEFAULT '',
+    status      TEXT    NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted')),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_entries_user_date ON entries(user_id, entry_date);
+  CREATE INDEX IF NOT EXISTS idx_entries_date      ON entries(entry_date);
+  CREATE INDEX IF NOT EXISTS idx_entries_project   ON entries(project_id);
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    sid        TEXT PRIMARY KEY,
+    data       TEXT    NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+`;
+
+const DEFAULT_ACTIVITIES = [
+  'Development',
+  'Code Review',
+  'Testing / QA',
+  'Bug Fix',
+  'Design / Architecture',
+  'Requirement Analysis',
+  'Meeting',
+  'Documentation',
+  'Deployment / Release',
+  'Production Support',
+  'Training / Learning',
+  'Administrative',
+  'Leave / Holiday',
+];
+
+async function init() {
+  if (config.isFileDb) {
+    // WAL keeps readers from blocking the writer. These pragmas are per
+    // connection and meaningless over Turso's HTTP protocol, so local only.
+    await client.execute('PRAGMA journal_mode = WAL');
+    await client.execute('PRAGMA busy_timeout = 5000');
+    await client.execute('PRAGMA foreign_keys = ON');
+  }
+
+  await client.executeMultiple(SCHEMA);
+
+  // INSERT OR IGNORE throughout: on Vercel two cold starts can run this at the
+  // same moment, and neither should fail because the other got there first.
+  const { n } = await get('SELECT COUNT(*) AS n FROM activities');
   if (n === 0) {
-    const insert = db.prepare('INSERT INTO activities (name) VALUES (?)');
-    for (const name of [
-      'Development',
-      'Code Review',
-      'Testing / QA',
-      'Bug Fix',
-      'Design / Architecture',
-      'Requirement Analysis',
-      'Meeting',
-      'Documentation',
-      'Deployment / Release',
-      'Production Support',
-      'Training / Learning',
-      'Administrative',
-      'Leave / Holiday',
-    ]) {
-      insert.run(name);
+    await batch(
+      DEFAULT_ACTIVITIES.map((name) => ({
+        sql: 'INSERT OR IGNORE INTO activities (name) VALUES (?)',
+        args: [name],
+      }))
+    );
+  }
+
+  const { p } = await get('SELECT COUNT(*) AS p FROM projects');
+  if (p === 0) {
+    await run(
+      'INSERT OR IGNORE INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?)',
+      ['INTERNAL', 'Internal / Non-billable', 'Internal', 0]
+    );
+  }
+
+  const { u } = await get('SELECT COUNT(*) AS u FROM users');
+  if (u === 0) {
+    const created = await run(
+      `INSERT OR IGNORE INTO users (employee_code, name, email, password_hash, role, department, hourly_rate, must_reset)
+       VALUES (?, ?, ?, ?, 'admin', ?, 0, 1)`,
+      [
+        'ADMIN001',
+        'System Administrator',
+        config.seedAdminEmail.toLowerCase(),
+        bcrypt.hashSync(config.seedAdminPassword, 12),
+        'Management',
+      ]
+    );
+    if (created.changes) {
+      console.log(
+        `[db] Seeded bootstrap admin: ${config.seedAdminEmail} — change this password on first login.`
+      );
     }
   }
 
-  const { p } = db.prepare('SELECT COUNT(*) AS p FROM projects').get();
-  if (p === 0) {
-    db.prepare(
-      'INSERT INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?)'
-    ).run('INTERNAL', 'Internal / Non-billable', 'Internal', 0);
-  }
-
-  const { u } = db.prepare('SELECT COUNT(*) AS u FROM users').get();
-  if (u === 0) {
-    db.prepare(
-      `INSERT INTO users (employee_code, name, email, password_hash, role, department, hourly_rate, must_reset)
-       VALUES (?, ?, ?, ?, 'admin', ?, 0, 1)`
-    ).run(
-      'ADMIN001',
-      'System Administrator',
-      config.seedAdminEmail.toLowerCase(),
-      bcrypt.hashSync(config.seedAdminPassword, 12),
-      'Management'
-    );
-    console.log(
-      `[db] Seeded bootstrap admin: ${config.seedAdminEmail} — change this password on first login.`
-    );
-  }
+  await run('DELETE FROM sessions WHERE expires_at <= ?', [Date.now()]);
 }
 
-migrate();
-seedIfEmpty();
+let readyPromise = null;
 
-module.exports = db;
+/**
+ * Resolves once the schema exists. Memoised so it runs once per process (once
+ * per cold start on Vercel); a failure clears the memo so the next request
+ * retries instead of the instance being stuck broken.
+ */
+function ready() {
+  if (!readyPromise) {
+    readyPromise = init().catch((err) => {
+      readyPromise = null;
+      throw err;
+    });
+  }
+  return readyPromise;
+}
+
+function close() {
+  client.close();
+}
+
+module.exports = { all, get, run, batch, ready, close };

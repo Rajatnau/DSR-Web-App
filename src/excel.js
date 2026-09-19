@@ -15,7 +15,7 @@ const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3
 /* Queries                                                             */
 /* ------------------------------------------------------------------ */
 
-const qEntries = db.prepare(`
+const SQL_ENTRIES = `
   SELECT e.id, e.entry_date, e.hours, e.rate_snapshot, e.description, e.ticket_ref,
          e.status, e.created_at, e.updated_at,
          u.employee_code, u.name AS employee_name, u.department, u.email,
@@ -26,9 +26,9 @@ const qEntries = db.prepare(`
   JOIN projects p   ON p.id = e.project_id
   JOIN activities a ON a.id = e.activity_id
   ORDER BY e.entry_date DESC, u.employee_code, e.id
-`);
+`;
 
-const qProjects = db.prepare(`
+const SQL_PROJECTS = `
   SELECT p.code, p.name, p.client, p.is_billable, p.is_active, p.created_at,
          COALESCE(SUM(e.hours), 0)                    AS total_hours,
          COALESCE(SUM(e.hours * e.rate_snapshot), 0)  AS total_cost,
@@ -37,9 +37,9 @@ const qProjects = db.prepare(`
   LEFT JOIN entries e ON e.project_id = p.id
   GROUP BY p.id
   ORDER BY p.code
-`);
+`;
 
-const qEmployees = db.prepare(`
+const SQL_EMPLOYEES = `
   SELECT u.employee_code, u.name, u.email, u.department, u.role, u.hourly_rate,
          u.is_active, u.created_at,
          COALESCE(SUM(e.hours), 0)                   AS total_hours,
@@ -48,9 +48,9 @@ const qEmployees = db.prepare(`
   LEFT JOIN entries e ON e.user_id = u.id
   GROUP BY u.id
   ORDER BY u.employee_code
-`);
+`;
 
-const qByProject = db.prepare(`
+const SQL_BY_PROJECT = `
   SELECT p.code, p.name, p.client,
          CASE WHEN p.is_billable = 1 THEN 'Billable' ELSE 'Non-billable' END AS billable,
          SUM(e.hours)                    AS hours,
@@ -60,9 +60,9 @@ const qByProject = db.prepare(`
          MAX(e.entry_date)               AS last_entry
   FROM entries e JOIN projects p ON p.id = e.project_id
   GROUP BY p.id ORDER BY cost DESC
-`);
+`;
 
-const qByEmployee = db.prepare(`
+const SQL_BY_EMPLOYEE = `
   SELECT u.employee_code, u.name, u.department,
          SUM(e.hours)                   AS hours,
          SUM(e.hours * e.rate_snapshot) AS cost,
@@ -70,25 +70,25 @@ const qByEmployee = db.prepare(`
          COUNT(DISTINCT e.entry_date)   AS days_logged
   FROM entries e JOIN users u ON u.id = e.user_id
   GROUP BY u.id ORDER BY cost DESC
-`);
+`;
 
-const qByMonth = db.prepare(`
+const SQL_BY_MONTH = `
   SELECT substr(e.entry_date, 1, 7) AS month,
          p.code AS project_code, p.name AS project_name,
          SUM(e.hours)                   AS hours,
          SUM(e.hours * e.rate_snapshot) AS cost
   FROM entries e JOIN projects p ON p.id = e.project_id
   GROUP BY month, p.id ORDER BY month DESC, cost DESC
-`);
+`;
 
-const qByActivity = db.prepare(`
+const SQL_BY_ACTIVITY = `
   SELECT a.name AS activity,
          SUM(e.hours)                   AS hours,
          SUM(e.hours * e.rate_snapshot) AS cost,
          COUNT(*)                       AS entries
   FROM entries e JOIN activities a ON a.id = e.activity_id
   GROUP BY a.id ORDER BY hours DESC
-`);
+`;
 
 /* ------------------------------------------------------------------ */
 /* Sheet helpers                                                       */
@@ -119,7 +119,16 @@ function addSheet(wb, name, columns, rows) {
   return ws;
 }
 
-function buildWorkbook() {
+async function loadData() {
+  const [entries, projects, employees, byProject, byEmployee, byMonth, byActivity] = await Promise.all(
+    [SQL_ENTRIES, SQL_PROJECTS, SQL_EMPLOYEES, SQL_BY_PROJECT, SQL_BY_EMPLOYEE, SQL_BY_MONTH, SQL_BY_ACTIVITY].map((sql) => db.all(sql))
+  );
+  return { entries, projects, employees, byProject, byEmployee, byMonth, byActivity };
+}
+
+async function buildWorkbook() {
+  const data = await loadData();
+
   const wb = new ExcelJS.Workbook();
   wb.creator = 'DSR Web App';
   wb.lastModifiedBy = 'DSR Web App';
@@ -152,7 +161,7 @@ function buildWorkbook() {
       { header: 'Created At (UTC)', key: 'created_at', width: 20 },
       { header: 'Updated At (UTC)', key: 'updated_at', width: 20 },
     ],
-    qEntries.all().map((e) => ({
+    data.entries.map((e) => ({
       id: e.id,
       entry_date: e.entry_date,
       year: Number(e.entry_date.slice(0, 4)),
@@ -191,7 +200,7 @@ function buildWorkbook() {
       { header: 'First Entry', key: 'first_entry', width: 14 },
       { header: 'Last Entry', key: 'last_entry', width: 14 },
     ],
-    qByProject.all()
+    data.byProject
   );
 
   /* --- Sheet 3: effort & cost per person --- */
@@ -207,7 +216,7 @@ function buildWorkbook() {
       { header: 'Projects', key: 'projects', width: 12 },
       { header: 'Days Logged', key: 'days_logged', width: 14 },
     ],
-    qByEmployee.all()
+    data.byEmployee
   );
 
   /* --- Sheet 4: month x project, the usual dashboard source --- */
@@ -221,7 +230,7 @@ function buildWorkbook() {
       { header: 'Hours', key: 'hours', width: 12, style: { numFmt: HOURS_FMT } },
       { header: `Cost (${config.currency})`, key: 'cost', width: 18, style: { numFmt: MONEY_FMT } },
     ],
-    qByMonth.all()
+    data.byMonth
   );
 
   /* --- Sheet 5: where the time actually goes --- */
@@ -234,7 +243,7 @@ function buildWorkbook() {
       { header: `Cost (${config.currency})`, key: 'cost', width: 18, style: { numFmt: MONEY_FMT } },
       { header: 'Entries', key: 'entries', width: 12 },
     ],
-    qByActivity.all()
+    data.byActivity
   );
 
   /* --- Sheets 6 & 7: dimension tables --- */
@@ -252,7 +261,7 @@ function buildWorkbook() {
       { header: 'People', key: 'people', width: 10 },
       { header: 'Created At (UTC)', key: 'created_at', width: 20 },
     ],
-    qProjects.all().map((p) => ({
+    data.projects.map((p) => ({
       ...p,
       is_billable: p.is_billable ? 'Yes' : 'No',
       is_active: p.is_active ? 'Yes' : 'No',
@@ -274,14 +283,19 @@ function buildWorkbook() {
       { header: `Total Cost (${config.currency})`, key: 'total_cost', width: 20, style: { numFmt: MONEY_FMT } },
       { header: 'Created At (UTC)', key: 'created_at', width: 20 },
     ],
-    qEmployees.all().map((u) => ({ ...u, is_active: u.is_active ? 'Yes' : 'No' }))
+    data.employees.map((u) => ({ ...u, is_active: u.is_active ? 'Yes' : 'No' }))
   );
 
   return wb;
 }
 
+
 /* ------------------------------------------------------------------ */
-/* Writing: serialised, atomic, and tolerant of the file being open    */
+/* Writing to disk: serialised, atomic, tolerant of the file being open */
+/*                                                                      */
+/* Only in "file" mode (a server with a persistent disk). On Vercel     */
+/* there is no disk that outlives a request, so the workbook is built   */
+/* on demand by writeToStream() instead and these become no-ops.        */
 /* ------------------------------------------------------------------ */
 
 let writing = null; // in-flight write promise
@@ -291,7 +305,8 @@ let lastError = null;
 let lastSyncedAt = null;
 
 async function writeWorkbookToDisk() {
-  const wb = buildWorkbook();
+  const wb = await buildWorkbook();
+  await fsp.mkdir(path.dirname(config.excelFile), { recursive: true });
   const tmp = `${config.excelFile}.${process.pid}.tmp`;
 
   await wb.xlsx.writeFile(tmp);
@@ -302,7 +317,7 @@ async function writeWorkbookToDisk() {
     await fsp.rename(tmp, config.excelFile);
   } catch (err) {
     // EBUSY/EPERM means someone has the workbook open in Excel. Keep the temp
-    // file out of the way and report it — the data is safe in SQLite regardless.
+    // file out of the way and report it — the data is safe in the database.
     await fsp.rm(tmp, { force: true });
     if (err.code === 'EBUSY' || err.code === 'EPERM') {
       throw Object.assign(
@@ -333,6 +348,7 @@ async function runSync() {
 
 /** Rebuild the workbook now and resolve when it is on disk. */
 function syncNow() {
+  if (!config.excelFileSync) return Promise.resolve();
   if (writing) {
     queued = true;
     return writing;
@@ -346,6 +362,7 @@ function syncNow() {
  * write routes so saving ten entries costs one workbook rebuild, not ten.
  */
 function scheduleSync(delayMs = 1500) {
+  if (!config.excelFileSync) return;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
@@ -354,14 +371,15 @@ function scheduleSync(delayMs = 1500) {
   debounceTimer.unref?.();
 }
 
-/** Streams the current workbook straight to an HTTP response. */
+/** Builds the workbook from the live database and streams it to a response. */
 async function writeToStream(stream) {
-  const wb = buildWorkbook();
+  const wb = await buildWorkbook();
   await wb.xlsx.write(stream);
 }
 
 /** Keeps a dated copy so a bad edit is never the only version of the truth. */
 async function backup() {
+  if (!config.excelFileSync) return null;
   if (!fs.existsSync(config.excelFile)) await syncNow();
   if (!fs.existsSync(config.excelFile)) return null;
 
@@ -382,7 +400,17 @@ async function backup() {
 }
 
 function status() {
+  if (!config.excelFileSync) {
+    return {
+      mode: 'on-demand',
+      feedEnabled: Boolean(config.exportToken),
+      lastSyncedAt: null,
+      lastError: null,
+    };
+  }
   return {
+    mode: 'file',
+    feedEnabled: Boolean(config.exportToken),
     file: config.excelFile,
     lastSyncedAt: lastSyncedAt ? lastSyncedAt.toISOString() : null,
     lastError,

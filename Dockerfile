@@ -1,4 +1,4 @@
-# node:sqlite is built in from Node 22.5 — no native build toolchain needed.
+# libSQL ships prebuilt binaries for linux-musl, so no build toolchain is needed.
 FROM node:24-alpine
 
 ENV NODE_ENV=production
@@ -8,9 +8,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-COPY server.js ./
+COPY server.js app.js ./
 COPY src ./src
 COPY public ./public
+COPY views ./views
 COPY scripts ./scripts
 
 # dsr.db, DSR.xlsx and backups/ live here. Mount a volume so they survive

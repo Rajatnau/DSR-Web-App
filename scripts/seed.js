@@ -10,6 +10,7 @@
 const bcrypt = require('bcryptjs');
 const db = require('../src/db');
 const excel = require('../src/excel');
+const config = require('../src/config');
 
 const PEOPLE = [
   ['EMP001', 'Priya Raman',      'priya.raman@company.com',      'Engineering', 1200, 'employee'],
@@ -59,48 +60,43 @@ function isoDaysAgo(n) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
-function seed() {
-  // --- People -------------------------------------------------------
-  const insertUser = db.prepare(
-    `INSERT INTO users (employee_code, name, email, password_hash, role, department, hourly_rate, must_reset)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
-  );
-  const hash = bcrypt.hashSync('Password@123', 10);
+async function seed() {
+  await db.ready();
 
-  for (const [code, name, email, dept, rate, role] of PEOPLE) {
-    const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(email);
-    if (!exists) insertUser.run(code, name, email, hash, role, dept, rate);
-  }
+  // --- People -------------------------------------------------------
+  const hash = bcrypt.hashSync('Password@123', 10);
+  await db.batch(
+    PEOPLE.map(([code, name, email, dept, rate, role]) => ({
+      sql: `INSERT OR IGNORE INTO users (employee_code, name, email, password_hash, role, department, hourly_rate, must_reset)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+      args: [code, name, email, hash, role, dept, rate],
+    }))
+  );
 
   // --- Projects -----------------------------------------------------
-  const insertProject = db.prepare(
-    'INSERT INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?)'
+  await db.batch(
+    PROJECTS.map(([code, name, client, billable]) => ({
+      sql: 'INSERT OR IGNORE INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?)',
+      args: [code, name, client, billable],
+    }))
   );
-  for (const [code, name, client, billable] of PROJECTS) {
-    const exists = db.prepare('SELECT 1 FROM projects WHERE code = ?').get(code);
-    if (!exists) insertProject.run(code, name, client, billable);
-  }
 
   // --- Entries ------------------------------------------------------
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM entries').get();
+  const { n } = await db.get('SELECT COUNT(*) AS n FROM entries');
   if (n > 0) {
     console.log(`[seed] ${n} entries already present — skipping entry generation.`);
     return;
   }
 
-  const users = db.prepare("SELECT id, hourly_rate FROM users WHERE employee_code LIKE 'EMP%' OR employee_code = 'MGR001'").all();
-  const projects = db.prepare("SELECT id, code FROM projects WHERE code != 'INTERNAL'").all();
-  const internal = db.prepare("SELECT id FROM projects WHERE code = 'INTERNAL'").get();
-  const activities = db.prepare('SELECT id, name FROM activities').all();
+  const users = await db.all(
+    "SELECT id, hourly_rate FROM users WHERE employee_code LIKE 'EMP%' OR employee_code = 'MGR001'"
+  );
+  const projects = await db.all("SELECT id, code FROM projects WHERE code != 'INTERNAL'");
+  const internal = await db.get("SELECT id FROM projects WHERE code = 'INTERNAL'");
+  const activities = await db.all('SELECT id, name FROM activities');
   const activityByName = new Map(activities.map((a) => [a.name, a.id]));
 
-  const insertEntry = db.prepare(
-    `INSERT INTO entries (user_id, project_id, activity_id, entry_date, hours, rate_snapshot,
-                          description, ticket_ref, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-
-  let created = 0;
+  const statements = [];
   // 45 days back, weekdays only.
   for (let day = 45; day >= 0; day -= 1) {
     const date = isoDaysAgo(day);
@@ -126,35 +122,45 @@ function seed() {
         const useInternal = ['Meeting', 'Documentation'].includes(activityName) && Math.random() < 0.4;
         const project = useInternal ? internal : pick(projects);
 
-        insertEntry.run(
-          user.id,
-          project.id,
-          activityId,
-          date,
-          hours,
-          user.hourly_rate,
-          pick(TASKS[activityName]),
-          Math.random() < 0.4 ? `JIRA-${1000 + Math.floor(Math.random() * 900)}` : '',
-          // Leave the last two days as drafts so the "submit" flow is visible.
-          day <= 1 ? 'draft' : 'submitted'
-        );
-        created += 1;
+        statements.push({
+          sql: `INSERT INTO entries (user_id, project_id, activity_id, entry_date, hours, rate_snapshot,
+                                     description, ticket_ref, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            user.id,
+            project.id,
+            activityId,
+            date,
+            hours,
+            user.hourly_rate,
+            pick(TASKS[activityName]),
+            Math.random() < 0.4 ? `JIRA-${1000 + Math.floor(Math.random() * 900)}` : '',
+            // Leave the last two days as drafts so the "submit" flow is visible.
+            day <= 1 ? 'draft' : 'submitted',
+          ],
+        });
       }
     }
   }
 
-  console.log(`[seed] Created ${created} demo entries across ${users.length} people.`);
+  // One batch = one round trip, which matters when seeding a hosted database.
+  await db.batch(statements);
+  console.log(`[seed] Created ${statements.length} demo entries across ${users.length} people.`);
 }
 
-seed();
-
-excel
-  .syncNow()
+seed()
+  .then(() => excel.syncNow())
   .then(() => {
-    console.log('[seed] Excel workbook written. Demo password for every seeded user: Password@123');
+    console.log(
+      config.excelFileSync
+        ? `[seed] Excel workbook written to ${config.excelFile}.`
+        : '[seed] Excel file sync is off; download the workbook from the admin console.'
+    );
+    console.log('[seed] Demo password for every seeded user: Password@123');
+    db.close();
     process.exit(0);
   })
   .catch((err) => {
-    console.error('[seed] Excel sync failed:', err.message);
+    console.error('[seed] failed:', err.message);
     process.exit(1);
   });

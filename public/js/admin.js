@@ -206,6 +206,17 @@ async function loadDashboard() {
 }
 
 function renderExcelStatus(status) {
+  const onDemand = status.mode === 'on-demand';
+
+  // Hosted (e.g. Vercel) deployments have no disk: there is no file to sync or
+  // back up, so hide those controls and explain where the workbook comes from.
+  $('#excel-sync').hidden = onDemand;
+  $('#excel-backup').hidden = onDemand;
+  $('#excel-desc-file').hidden = onDemand;
+  $('#excel-desc-ondemand').hidden = !onDemand;
+  $('#excel-feed').hidden = !status.feedEnabled;
+  $('#excel-feed-url').textContent = `${location.origin}/api/export/dsr.xlsx?token=…`;
+
   const warn = $('#excel-warning');
   if (status.lastError) {
     warn.textContent = `Excel sync problem: ${status.lastError}`;
@@ -213,9 +224,14 @@ function renderExcelStatus(status) {
   } else {
     warn.hidden = true;
   }
-  $('#excel-status').textContent = status.lastSyncedAt
-    ? `Last written ${new Date(status.lastSyncedAt).toLocaleString()}`
-    : 'Not written yet';
+
+  if (onDemand) {
+    $('#excel-status').textContent = 'Built from live data on every download';
+  } else {
+    $('#excel-status').textContent = status.lastSyncedAt
+      ? `Last written ${new Date(status.lastSyncedAt).toLocaleString()}`
+      : 'Not written yet';
+  }
 }
 
 $('#excel-sync').addEventListener('click', (e) =>

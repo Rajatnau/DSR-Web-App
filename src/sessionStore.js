@@ -4,82 +4,58 @@ const session = require('express-session');
 const db = require('./db');
 
 /**
- * Minimal express-session store backed by the app's SQLite database, so logins
- * survive a restart without pulling in another dependency.
+ * express-session store backed by the app's own database, so logins survive a
+ * restart — and, on Vercel, work across function instances, which share no
+ * memory. Expired rows are cleared by db.ready() on each cold start and
+ * opportunistically on writes; no timers, since a serverless function may be
+ * frozen between requests.
  */
-class SqliteStore extends session.Store {
-  constructor() {
-    super();
-    this.stmts = {
-      get: db.prepare('SELECT data, expires_at FROM sessions WHERE sid = ?'),
-      set: db.prepare(
-        `INSERT INTO sessions (sid, data, expires_at) VALUES (?, ?, ?)
-         ON CONFLICT(sid) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at`
-      ),
-      destroy: db.prepare('DELETE FROM sessions WHERE sid = ?'),
-      touch: db.prepare('UPDATE sessions SET expires_at = ? WHERE sid = ?'),
-      prune: db.prepare('DELETE FROM sessions WHERE expires_at <= ?'),
-    };
-
-    // Clear expired rows hourly; unref so the timer never holds the process open.
-    this.timer = setInterval(() => this.prune(), 60 * 60 * 1000);
-    this.timer.unref();
-    this.prune();
-  }
-
-  prune() {
-    try {
-      this.stmts.prune.run(Date.now());
-    } catch (err) {
-      console.error('[session] prune failed:', err.message);
-    }
-  }
-
+class DbStore extends session.Store {
   expiryOf(sess) {
     const ms = sess?.cookie?.maxAge ?? 12 * 60 * 60 * 1000;
     return Date.now() + ms;
   }
 
   get(sid, cb) {
-    try {
-      const row = this.stmts.get.get(sid);
-      if (!row) return cb(null, null);
-      if (row.expires_at <= Date.now()) {
-        this.stmts.destroy.run(sid);
-        return cb(null, null);
-      }
-      return cb(null, JSON.parse(row.data));
-    } catch (err) {
-      return cb(err);
-    }
+    db.get('SELECT data, expires_at FROM sessions WHERE sid = ?', [sid])
+      .then(async (row) => {
+        if (!row) return cb(null, null);
+        if (row.expires_at <= Date.now()) {
+          await db.run('DELETE FROM sessions WHERE sid = ?', [sid]);
+          return cb(null, null);
+        }
+        return cb(null, JSON.parse(row.data));
+      })
+      .catch(cb);
   }
 
   set(sid, sess, cb) {
-    try {
-      this.stmts.set.run(sid, JSON.stringify(sess), this.expiryOf(sess));
-      return cb(null);
-    } catch (err) {
-      return cb(err);
-    }
+    db.run(
+      `INSERT INTO sessions (sid, data, expires_at) VALUES (?, ?, ?)
+       ON CONFLICT(sid) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at`,
+      [sid, JSON.stringify(sess), this.expiryOf(sess)]
+    )
+      .then(() => {
+        // Roughly one write in fifty also sweeps expired sessions.
+        if (Math.random() < 0.02) {
+          db.run('DELETE FROM sessions WHERE expires_at <= ?', [Date.now()]).catch(() => {});
+        }
+        cb(null);
+      })
+      .catch(cb);
   }
 
   touch(sid, sess, cb) {
-    try {
-      this.stmts.touch.run(this.expiryOf(sess), sid);
-      return cb(null);
-    } catch (err) {
-      return cb(err);
-    }
+    db.run('UPDATE sessions SET expires_at = ? WHERE sid = ?', [this.expiryOf(sess), sid])
+      .then(() => cb(null))
+      .catch(cb);
   }
 
   destroy(sid, cb) {
-    try {
-      this.stmts.destroy.run(sid);
-      return cb(null);
-    } catch (err) {
-      return cb(err);
-    }
+    db.run('DELETE FROM sessions WHERE sid = ?', [sid])
+      .then(() => cb(null))
+      .catch(cb);
   }
 }
 
-module.exports = SqliteStore;
+module.exports = DbStore;

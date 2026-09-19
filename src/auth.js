@@ -2,26 +2,29 @@
 
 const db = require('./db');
 
-const findUserById = db.prepare(
-  'SELECT id, employee_code, name, email, role, department, hourly_rate, is_active, must_reset FROM users WHERE id = ?'
-);
-
 /**
  * Loads the logged-in user onto req.user for every request. The user record is
  * re-read each time so deactivating an account takes effect immediately rather
  * than at the end of their session.
  */
-function loadUser(req, _res, next) {
+async function loadUser(req, _res, next) {
   req.user = null;
-  if (req.session?.userId) {
-    const user = findUserById.get(req.session.userId);
-    if (user && user.is_active) {
-      req.user = user;
-    } else {
-      req.session.destroy(() => {});
+  try {
+    if (req.session?.userId) {
+      const user = await db.get(
+        'SELECT id, employee_code, name, email, role, department, hourly_rate, is_active, must_reset FROM users WHERE id = ?',
+        [req.session.userId]
+      );
+      if (user && user.is_active) {
+        req.user = user;
+      } else {
+        req.session.destroy(() => {});
+      }
     }
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 }
 
 function wantsJson(req) {

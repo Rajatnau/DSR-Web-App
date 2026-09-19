@@ -1,11 +1,11 @@
 {
   "name": "dsr-web-app",
   "version": "1.0.0",
-  "description": "Daily Status Report (DSR) tracker — per-employee login, project/activity time capture, live Excel export for dashboards and project costing.",
-  "main": "server.js",
+  "description": "Daily Status Report (DSR) tracker — per-employee login, project/activity time capture, Excel export for dashboards and project costing. Runs as a Node server or on Vercel with Turso.",
+  "main": "app.js",
   "type": "commonjs",
   "engines": {
-    "node": ">=22.5.0"
+    "node": "22.x || 24.x"
   },
   "scripts": {
     "start": "node server.js",
@@ -20,6 +20,7 @@
     "uuid": "^11.1.1"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "bcryptjs": "^3.0.2",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",

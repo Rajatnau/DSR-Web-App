@@ -1,0 +1,7 @@
+# Keep local state and secrets out of `vercel deploy` uploads from this machine.
+data/
+dsr-data/
+.env
+node_modules/
+*.log
+*.tmp

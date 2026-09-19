@@ -56,10 +56,20 @@
           <span class="sub" id="excel-status">—</span>
         </header>
         <div class="body">
-          <p class="muted" style="margin-top:0;font-size:13px;">
+          <p class="muted" style="margin-top:0;font-size:13px;" id="excel-desc-file">
             The workbook is rewritten automatically whenever anyone saves a DSR entry. It contains a flat
             <strong>DSR Entries</strong> fact sheet plus pre-aggregated cost sheets, ready for pivot tables
             and Power BI.
+          </p>
+          <p class="muted" style="margin-top:0;font-size:13px;" id="excel-desc-ondemand" hidden>
+            This deployment builds the workbook fresh from the live database each time it is downloaded, so it
+            is always current. It contains a flat <strong>DSR Entries</strong> fact sheet plus pre-aggregated
+            cost sheets, ready for pivot tables and Power BI.
+          </p>
+          <p class="muted" style="margin-top:0;font-size:13px;" id="excel-feed" hidden>
+            <strong>Live feed enabled.</strong> In Excel use <em>Data &rarr; From Web</em> (or Power BI
+            <em>Get Data &rarr; Web</em>) with <span class="code" id="excel-feed-url"></span>, replacing
+            <span class="code">…</span> with the export token from your deployment settings.
           </p>
           <div class="toolbar">
             <a class="btn" href="/api/admin/export.xlsx">Download DSR.xlsx</a>
