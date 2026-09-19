@@ -130,10 +130,10 @@ router.post('/entries', v.asyncRoute(async (req, res) => {
   const body = await readEntryBody(req);
   await assertDayCapacity(req.user.id, body.entryDate, body.hours);
 
-  const info = await db.run(
+  const created = await db.get(
     `INSERT INTO entries (user_id, project_id, activity_id, entry_date, hours, rate_snapshot,
                           description, ticket_ref, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft') RETURNING id`,
     [
       req.user.id,
       body.projectId,
@@ -147,7 +147,7 @@ router.post('/entries', v.asyncRoute(async (req, res) => {
   );
 
   excel.scheduleSync();
-  res.status(201).json({ id: info.lastInsertRowid });
+  res.status(201).json({ id: created.id });
 }));
 
 router.put('/entries/:id', v.asyncRoute(async (req, res) => {
@@ -168,7 +168,7 @@ router.put('/entries/:id', v.asyncRoute(async (req, res) => {
   const info = await db.run(
     `UPDATE entries
         SET project_id = ?, activity_id = ?, entry_date = ?, hours = ?,
-            description = ?, ticket_ref = ?, updated_at = datetime('now')
+            description = ?, ticket_ref = ?, updated_at = ?
       WHERE id = ? AND user_id = ? AND status = 'draft'`,
     [
       body.projectId,
@@ -177,6 +177,7 @@ router.put('/entries/:id', v.asyncRoute(async (req, res) => {
       body.hours,
       body.description,
       body.ticketRef,
+      db.nowUtc(),
       entryId,
       req.user.id,
     ]
@@ -213,8 +214,8 @@ router.post('/entries/submit', v.asyncRoute(async (req, res) => {
   if (total === 0) throw v.badRequest('There is nothing to submit for that date');
 
   const info = await db.run(
-    "UPDATE entries SET status = 'submitted', updated_at = datetime('now') WHERE user_id = ? AND entry_date = ? AND status = 'draft'",
-    [req.user.id, entryDate]
+    "UPDATE entries SET status = 'submitted', updated_at = ? WHERE user_id = ? AND entry_date = ? AND status = 'draft'",
+    [db.nowUtc(), req.user.id, entryDate]
   );
   if (info.changes === 0) throw v.badRequest('That day has already been submitted');
 

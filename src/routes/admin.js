@@ -46,13 +46,13 @@ router.post('/users', v.asyncRoute(async (req, res) => {
   const hourlyRate = v.money(req.body?.hourlyRate, 'Hourly rate');
 
   try {
-    const info = await db.run(
+    const created = await db.get(
       `INSERT INTO users (employee_code, name, email, password_hash, role, department, hourly_rate, must_reset)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`,
       [employeeCode, name, email, await bcrypt.hash(password, 12), role, department, hourlyRate]
     );
     excel.scheduleSync();
-    res.status(201).json({ id: info.lastInsertRowid });
+    res.status(201).json({ id: created.id });
   } catch (err) {
     if (isUniqueViolation(err)) throw v.badRequest('That employee code or email is already registered');
     throw err;
@@ -123,12 +123,12 @@ router.post('/projects', v.asyncRoute(async (req, res) => {
   const isBillable = v.bool(req.body?.isBillable);
 
   try {
-    const info = await db.run(
-      'INSERT INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?)',
+    const created = await db.get(
+      'INSERT INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?) RETURNING id',
       [code, name, client, isBillable]
     );
     excel.scheduleSync();
-    res.status(201).json({ id: info.lastInsertRowid });
+    res.status(201).json({ id: created.id });
   } catch (err) {
     if (isUniqueViolation(err)) throw v.badRequest('A project with that code already exists');
     throw err;
@@ -168,9 +168,9 @@ router.get('/activities', v.asyncRoute(async (_req, res) => {
 router.post('/activities', v.asyncRoute(async (req, res) => {
   const name = v.str(req.body?.name, 'Activity name', { required: true, max: 80 });
   try {
-    const info = await db.run('INSERT INTO activities (name) VALUES (?)', [name]);
+    const created = await db.get('INSERT INTO activities (name) VALUES (?) RETURNING id', [name]);
     excel.scheduleSync();
-    res.status(201).json({ id: info.lastInsertRowid });
+    res.status(201).json({ id: created.id });
   } catch (err) {
     if (isUniqueViolation(err)) throw v.badRequest('That activity already exists');
     throw err;
@@ -244,8 +244,8 @@ router.post('/entries/reopen', v.asyncRoute(async (req, res) => {
   const userId = v.id(req.body?.userId, 'Employee');
   const date = v.date(req.body?.date, 'Date');
   const info = await db.run(
-    "UPDATE entries SET status = 'draft', updated_at = datetime('now') WHERE user_id = ? AND entry_date = ? AND status = 'submitted'",
-    [userId, date]
+    "UPDATE entries SET status = 'draft', updated_at = ? WHERE user_id = ? AND entry_date = ? AND status = 'submitted'",
+    [db.nowUtc(), userId, date]
   );
   if (info.changes === 0) throw v.badRequest('No submitted entries found for that employee and date');
   excel.scheduleSync();

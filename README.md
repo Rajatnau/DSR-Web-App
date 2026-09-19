@@ -36,9 +36,9 @@ You can also pull a fresh copy any time from **Download DSR.xlsx** in the admin
 console, which streams a workbook built on the spot and never touches the file
 on disk.
 
-**On Vercel** (or any host without a persistent disk) the database is a hosted
-[Turso](https://turso.tech) database instead of a local file, and the workbook
-is built fresh from live data on every download. A token-protected URL lets
+**On Vercel** (or any host without a persistent disk) the database is Vercel's
+built-in **Postgres** (Storage tab, run by Neon) instead of a local file, and
+the workbook is built fresh from live data on every download. A token-protected URL lets
 Excel Power Query and Power BI refresh from it. See
 [docs/DEPLOY-VERCEL.md](docs/DEPLOY-VERCEL.md).
 
@@ -154,18 +154,19 @@ Admins can also log their own time via **My DSR**.
 
 ## Deployment
 
-The app runs either as a serverless function on Vercel with a hosted Turso
-database, or as a single Node process with a local SQLite file. For the second
+The app runs either as a serverless function on Vercel with a hosted database
+(Vercel Postgres, or Turso), or as a single Node process with a local SQLite
+file. For the second
 option, **the one thing that matters is that `DATA_DIR` points at storage that
 survives restarts**. Otherwise every deploy starts from an empty database.
 
 ### Vercel
 
 Step-by-step guide: **[docs/DEPLOY-VERCEL.md](docs/DEPLOY-VERCEL.md)**. In
-short: create a Turso database, import the GitHub repo into Vercel, set
-`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET`,
-`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` and `APP_TIMEZONE`, then deploy.
-`vercel.json` already handles routing and the region.
+short: import the GitHub repo into Vercel, create a Postgres database under
+**Storage** and connect it (this adds `DATABASE_URL`), set `SESSION_SECRET`,
+`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` and `APP_TIMEZONE`, then redeploy.
+`vercel.json` already handles routing and the region. Turso works too.
 
 ### On your own network (simplest)
 
@@ -227,7 +228,7 @@ Copy `.env.example` to `.env`. Everything has a working default except
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | |
 | `SESSION_SECRET` | — | **Required** when `NODE_ENV=production`. |
 | `DATA_DIR` | `./data` | Holds `dsr.db` (local mode), `DSR.xlsx`, `backups/`. |
-| `DATABASE_URL` / `DATABASE_AUTH_TOKEN` | local file | A Turso `libsql://` URL and token. `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` also work. **Required on Vercel.** |
+| `DATABASE_URL` | local file | `postgres://…` for PostgreSQL (Vercel's Storage tab sets this; `POSTGRES_URL` also works), or `libsql://…` for Turso together with `DATABASE_AUTH_TOKEN` (or `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`). **Required on Vercel.** |
 | `EXCEL_FILE_SYNC` | `true` locally, `false` on Vercel | Rewrite `DSR.xlsx` on disk after every change. |
 | `EXPORT_TOKEN` | — | Enables the live feed `/api/export/dsr.xlsx?token=…` for Power Query / Power BI. At least 24 characters. |
 | `APP_TIMEZONE` | machine's zone | IANA zone that defines "today", e.g. `Asia/Kolkata`. Set it on Vercel, whose clock is UTC. |
@@ -273,7 +274,7 @@ api/index.js           Vercel entry point — exports app.js
 vercel.json            Vercel routing, region, function settings
 src/
   config.js            Environment configuration
-  db.js                libSQL client (local file or Turso), schema, first-run seeding
+  db.js                Database layer: PostgreSQL or SQLite (local file / Turso), schema, first-run seeding
   dates.js             "Today" in the team's timezone
   excel.js             Workbook generation, atomic writes, backups
   auth.js              Session loading, requireAuth / requireAdmin
@@ -292,7 +293,7 @@ public/                Static assets (served by Vercel's CDN when deployed there
 scripts/
   seed.js              Demo data
   export.js            Write the workbook and exit
-docs/DEPLOY-VERCEL.md  Vercel + Turso deployment guide
+docs/DEPLOY-VERCEL.md  Vercel + Postgres deployment guide
 data/                  Created at runtime (local mode): database, workbook, backups
 ```
 

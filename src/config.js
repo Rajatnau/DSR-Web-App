@@ -47,21 +47,27 @@ const dataDir = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.join(rootDir, 'data');
 
-// Turso's Vercel Marketplace integration injects TURSO_DATABASE_URL and
-// TURSO_AUTH_TOKEN; DATABASE_URL / DATABASE_AUTH_TOKEN work anywhere else.
-const explicitDbUrl = process.env.DATABASE_URL || process.env.TURSO_DATABASE_URL || '';
+// Where the data lives, picked from whichever variable is set:
+//  - DATABASE_URL / POSTGRES_URL = postgres://...  -> PostgreSQL. This is what
+//    Vercel's built-in database (Storage -> Postgres, run by Neon) injects.
+//  - DATABASE_URL / TURSO_DATABASE_URL = libsql://... -> Turso (hosted SQLite).
+//  - nothing                                        -> local SQLite file.
+const explicitDbUrl =
+  process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.TURSO_DATABASE_URL || '';
 const dbAuthToken = process.env.DATABASE_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || '';
 
 if (isVercel && !explicitDbUrl) {
   throw new Error(
-    'No database configured. On Vercel set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN ' +
-      '(the Turso Marketplace integration adds them for you). A local SQLite file ' +
-      'would be wiped every time the function is recycled.'
+    'No database configured. In Vercel open Storage -> Create Database -> Postgres (Neon) and ' +
+      'connect it to this project, which adds DATABASE_URL, then redeploy. (Turso also works: ' +
+      'set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.) A local SQLite file would be wiped every ' +
+      'time the function is recycled.'
   );
 }
 
 // libSQL wants forward slashes, including on Windows.
 const dbUrl = explicitDbUrl || `file:${path.join(dataDir, 'dsr.db').replace(/\\/g, '/')}`;
+const isPostgres = /^postgres(ql)?:\/\//i.test(dbUrl);
 
 if (isProduction && !process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET must be set when NODE_ENV=production');
@@ -83,6 +89,7 @@ module.exports = {
   dbUrl,
   dbAuthToken,
   isFileDb: dbUrl.startsWith('file:'),
+  isPostgres,
   excelFile: path.join(dataDir, 'DSR.xlsx'),
   backupDir: path.join(dataDir, 'backups'),
   // Keep data/DSR.xlsx rewritten after every change. Needs a persistent disk,

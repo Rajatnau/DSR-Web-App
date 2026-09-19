@@ -67,8 +67,8 @@ async function seed() {
   const hash = bcrypt.hashSync('Password@123', 10);
   await db.batch(
     PEOPLE.map(([code, name, email, dept, rate, role]) => ({
-      sql: `INSERT OR IGNORE INTO users (employee_code, name, email, password_hash, role, department, hourly_rate, must_reset)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+      sql: `INSERT INTO users (employee_code, name, email, password_hash, role, department, hourly_rate, must_reset)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT DO NOTHING`,
       args: [code, name, email, hash, role, dept, rate],
     }))
   );
@@ -76,7 +76,7 @@ async function seed() {
   // --- Projects -----------------------------------------------------
   await db.batch(
     PROJECTS.map(([code, name, client, billable]) => ({
-      sql: 'INSERT OR IGNORE INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?)',
+      sql: 'INSERT INTO projects (code, name, client, is_billable) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING',
       args: [code, name, client, billable],
     }))
   );

@@ -12,13 +12,25 @@ const app = require('./app');
 
 let server;
 
+/** Where the data lives, without ever printing a password or token. */
+function describeDb() {
+  if (config.isFileDb) return config.dbUrl.slice('file:'.length);
+  try {
+    const u = new URL(config.dbUrl);
+    const engine = config.isPostgres ? 'PostgreSQL' : 'Turso (libSQL)';
+    return `${engine} at ${u.host}${config.isPostgres ? u.pathname : ''}`;
+  } catch {
+    return 'remote database';
+  }
+}
+
 async function start() {
   // Fail fast on a bad database URL or token instead of on the first request.
   await db.ready();
 
   server = app.listen(config.port, config.host, () => {
     console.log(`\n  DSR Web App running on http://localhost:${config.port}`);
-    console.log(`  Database       : ${config.isFileDb ? config.dbUrl.slice('file:'.length) : config.dbUrl}`);
+    console.log(`  Database       : ${describeDb()}`);
     console.log(
       `  Excel workbook : ${config.excelFileSync ? config.excelFile : 'built on download (EXCEL_FILE_SYNC=false)'}`
     );
