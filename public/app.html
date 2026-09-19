@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My DSR · DSR Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f3864'/><text x='16' y='22' font-family='system-ui' font-size='15' font-weight='700' fill='white' text-anchor='middle'>D</text></svg>">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">D</span> DSR Tracker</div>
+    <nav>
+      <button data-view="log" class="active">Log time</button>
+      <button data-view="timesheet">My timesheet</button>
+      <button data-view="overview">Overview</button>
+      <button data-view="account">Account</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="who"><strong id="who-name">—</strong><span id="who-meta"></span></div>
+    <button class="btn secondary sm" id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <div class="banner warn" id="must-reset" hidden>
+      Your password was set by an administrator. Please change it from the <strong>Account</strong> tab.
+    </div>
+
+    <!-- ============================ LOG TIME ============================ -->
+    <section class="view" id="view-log">
+      <div class="view-head">
+        <div>
+          <h1>Log time</h1>
+          <p>Record what you worked on. Entries stay editable until you submit the day.</p>
+        </div>
+        <div class="toolbar">
+          <button class="btn secondary sm" id="day-prev">&larr; Previous day</button>
+          <input type="date" id="entry-date" style="width:auto">
+          <button class="btn secondary sm" id="day-next">Next day &rarr;</button>
+          <button class="btn secondary sm" id="day-today">Today</button>
+        </div>
+      </div>
+
+      <div class="grid log-layout">
+        <!-- Entry form -->
+        <div class="card">
+          <header>
+            <h2 id="form-title">Add an entry</h2>
+            <span class="sub" id="form-date-label"></span>
+          </header>
+          <div class="body">
+            <form id="entry-form">
+              <input type="hidden" id="entry-id">
+              <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="field span-all">
+                  <label for="project">Project</label>
+                  <select id="project" required></select>
+                </div>
+
+                <div class="field span-all">
+                  <label for="activity">Activity</label>
+                  <select id="activity" required></select>
+                </div>
+
+                <div class="field">
+                  <label for="hours">Hours</label>
+                  <input type="number" id="hours" min="0.25" max="24" step="0.25" required placeholder="1.50">
+                  <span class="hint">In steps of 0.25</span>
+                </div>
+
+                <div class="field">
+                  <label for="ticket">Ticket / Ref <span style="font-weight:400">(optional)</span></label>
+                  <input type="text" id="ticket" maxlength="60" placeholder="JIRA-1234">
+                </div>
+
+                <div class="field span-all">
+                  <label for="description">What did you do?</label>
+                  <textarea id="description" maxlength="1000" required
+                            placeholder="Implemented the invoice export endpoint and added unit tests."></textarea>
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn" id="entry-save">Add entry</button>
+                <button type="button" class="btn secondary" id="entry-cancel" hidden>Cancel edit</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Day's entries -->
+        <div class="card">
+          <header>
+            <h2>Entries for <span id="day-heading">today</span></h2>
+            <span class="sub" id="day-status"></span>
+          </header>
+          <div class="body">
+            <div class="day-meter">
+              <div class="track"><div class="fill" id="day-fill" style="width:0%"></div></div>
+              <div class="readout" id="day-readout">0.00 / 8 h</div>
+              <button class="btn sm" id="submit-day">Submit day</button>
+            </div>
+          </div>
+          <div class="body flush table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>Activity</th>
+                  <th>Description</th>
+                  <th class="num">Hours</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="day-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================== TIMESHEET ============================ -->
+    <section class="view" id="view-timesheet" hidden>
+      <div class="view-head">
+        <div>
+          <h1>My timesheet</h1>
+          <p>Everything you have logged in the selected period.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="body">
+          <div class="filters">
+            <div class="field">
+              <label for="ts-from">From</label>
+              <input type="date" id="ts-from">
+            </div>
+            <div class="field">
+              <label for="ts-to">To</label>
+              <input type="date" id="ts-to">
+            </div>
+            <div class="field">
+              <label for="ts-preset">Quick range</label>
+              <select id="ts-preset">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="month">This month</option>
+                <option value="prevmonth">Last month</option>
+              </select>
+            </div>
+            <div><button class="btn" id="ts-apply">Apply</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid stats" id="ts-stats" style="margin-bottom:16px;"></div>
+
+      <div class="card">
+        <header>
+          <h2>Entries</h2>
+          <span class="sub" id="ts-count"></span>
+        </header>
+        <div class="body flush table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Project</th>
+                <th>Activity</th>
+                <th>Description</th>
+                <th class="num">Hours</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="ts-rows"></tbody>
+            <tfoot id="ts-foot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ OVERVIEW ============================ -->
+    <section class="view" id="view-overview" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Overview</h1>
+          <p>Your effort at a glance.</p>
+        </div>
+      </div>
+
+      <div class="grid stats" id="ov-stats" style="margin-bottom:16px;"></div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <header><h2>Hours by project</h2><span class="sub">This month</span></header>
+          <div class="body" id="ov-projects"></div>
+        </div>
+        <div class="card">
+          <header><h2>Days with no entries</h2><span class="sub">Last 7 weekdays</span></header>
+          <div class="body" id="ov-missing"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================= ACCOUNT ============================ -->
+    <section class="view" id="view-account" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Account</h1>
+          <p>Your profile and password.</p>
+        </div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <header><h2>Profile</h2></header>
+          <div class="body">
+            <table class="data" id="profile-table"></table>
+          </div>
+        </div>
+
+        <div class="card">
+          <header><h2>Change password</h2></header>
+          <div class="body">
+            <form id="password-form">
+              <div class="form-grid" style="grid-template-columns:1fr;">
+                <div class="field">
+                  <label for="pw-current">Current password</label>
+                  <input type="password" id="pw-current" autocomplete="current-password" required>
+                </div>
+                <div class="field">
+                  <label for="pw-new">New password</label>
+                  <input type="password" id="pw-new" autocomplete="new-password" required>
+                  <span class="hint">At least 8 characters, with a letter and a number.</span>
+                </div>
+                <div class="field">
+                  <label for="pw-confirm">Confirm new password</label>
+                  <input type="password" id="pw-confirm" autocomplete="new-password" required>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn">Update password</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toasts"></div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/employee.js"></script>
+</body>
+</html>

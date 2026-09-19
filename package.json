@@ -1,0 +1,30 @@
+{
+  "name": "dsr-web-app",
+  "version": "1.0.0",
+  "description": "Daily Status Report (DSR) tracker — per-employee login, project/activity time capture, live Excel export for dashboards and project costing.",
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node scripts/seed.js",
+    "export": "node scripts/export.js"
+  },
+  "comments": {
+    "overrides": "exceljs 4.4.0 pins uuid ^8.3.0, which carries GHSA-w5hq-g745-h8pq. ExcelJS only calls uuid.v4() with no arguments so the app is not exposed, but we force the patched release rather than downgrade exceljs to 3.x."
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "helmet": "^8.1.0"
+  }
+}

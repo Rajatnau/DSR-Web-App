@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · DSR Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f3864'/><text x='16' y='22' font-family='system-ui' font-size='15' font-weight='700' fill='white' text-anchor='middle'>D</text></svg>">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <div class="head">
+      <div class="mark">DSR</div>
+      <h1>Daily Status Report</h1>
+      <p>Sign in to log your time</p>
+    </div>
+
+    <form id="login-form" autocomplete="on">
+      <div class="banner error" id="error" hidden></div>
+      <div class="banner info" id="notice" hidden></div>
+
+      <div class="field">
+        <label for="email">Work email</label>
+        <input type="email" id="email" name="email" autocomplete="username" required autofocus
+               placeholder="you@company.com">
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required
+               placeholder="••••••••">
+      </div>
+
+      <button type="submit" class="btn block" id="submit">Sign in</button>
+    </form>
+
+    <div class="foot">Contact your administrator if you need an account or a password reset.</div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/login.js"></script>
+</body>
+</html>

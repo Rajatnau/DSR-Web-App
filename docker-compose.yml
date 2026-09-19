@@ -1,0 +1,24 @@
+services:
+  dsr:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      # Generate with:
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in a .env file next to this compose file}
+      # Leave both false when reaching the app over plain HTTP on your LAN;
+      # set both true once it sits behind an HTTPS reverse proxy.
+      TRUST_PROXY: "false"
+      SECURE_COOKIES: "false"
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@company.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin@123}
+      CURRENCY: ${CURRENCY:-INR}
+      STANDARD_HOURS_PER_DAY: "8"
+      MAX_HOURS_PER_DAY: "16"
+    volumes:
+      # The Excel workbook lands in ./dsr-data/DSR.xlsx on the host.
+      - ./dsr-data:/data

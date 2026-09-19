@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · DSR Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f3864'/><text x='16' y='22' font-family='system-ui' font-size='15' font-weight='700' fill='white' text-anchor='middle'>D</text></svg>">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">D</span> DSR Admin</div>
+    <nav>
+      <button data-view="dashboard" class="active">Dashboard</button>
+      <button data-view="entries">All entries</button>
+      <button data-view="projects">Projects</button>
+      <button data-view="people">People</button>
+      <button data-view="activities">Activities</button>
+    </nav>
+    <div class="spacer"></div>
+    <a class="btn secondary sm" href="/app.html">My DSR</a>
+    <div class="who"><strong id="who-name">—</strong><span id="who-meta"></span></div>
+    <button class="btn secondary sm" id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <!-- =========================== DASHBOARD ============================ -->
+    <section class="view" id="view-dashboard">
+      <div class="view-head">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Effort and cost across the organisation.</p>
+        </div>
+        <div class="toolbar">
+          <input type="date" id="dash-from" style="width:auto">
+          <span class="muted">to</span>
+          <input type="date" id="dash-to" style="width:auto">
+          <select id="dash-preset" style="width:auto">
+            <option value="month" selected>This month</option>
+            <option value="prevmonth">Last month</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="year">This year</option>
+          </select>
+          <button class="btn" id="dash-apply">Apply</button>
+        </div>
+      </div>
+
+      <div class="banner error" id="excel-warning" hidden></div>
+
+      <div class="grid stats" id="dash-stats" style="margin-bottom:16px;"></div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <header>
+          <h2>Excel workbook</h2>
+          <span class="sub" id="excel-status">—</span>
+        </header>
+        <div class="body">
+          <p class="muted" style="margin-top:0;font-size:13px;">
+            The workbook is rewritten automatically whenever anyone saves a DSR entry. It contains a flat
+            <strong>DSR Entries</strong> fact sheet plus pre-aggregated cost sheets, ready for pivot tables
+            and Power BI.
+          </p>
+          <div class="toolbar">
+            <a class="btn" href="/api/admin/export.xlsx">Download DSR.xlsx</a>
+            <button class="btn secondary" id="excel-sync">Re-sync now</button>
+            <button class="btn secondary" id="excel-backup">Create dated backup</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid cols-2" style="margin-bottom:16px;">
+        <div class="card">
+          <header><h2>Cost by project</h2><span class="sub" id="dash-cost-note"></span></header>
+          <div class="body" id="dash-project-bars"></div>
+        </div>
+        <div class="card">
+          <header><h2>Hours by activity</h2></header>
+          <div class="body" id="dash-activity-bars"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <header><h2>Project cost breakdown</h2><span class="sub">Cost uses each person's rate at the time the entry was saved</span></header>
+        <div class="body flush table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Code</th><th>Project</th><th>Client</th><th>Type</th>
+                <th class="num">People</th><th class="num">Hours</th><th class="num">Cost</th>
+              </tr>
+            </thead>
+            <tbody id="dash-project-rows"></tbody>
+            <tfoot id="dash-project-foot"></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <header><h2>Effort by employee</h2></header>
+          <div class="body flush table-wrap">
+            <table class="data">
+              <thead>
+                <tr><th>Employee</th><th class="num">Days</th><th class="num">Hours</th><th class="num">Cost</th></tr>
+              </thead>
+              <tbody id="dash-employee-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <header><h2>No entries in this period</h2><span class="sub">Active employees</span></header>
+          <div class="body" id="dash-missing"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ ENTRIES ============================= -->
+    <section class="view" id="view-entries" hidden>
+      <div class="view-head">
+        <div>
+          <h1>All entries</h1>
+          <p>Search, audit and correct submitted DSRs.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="body">
+          <div class="filters">
+            <div class="field"><label for="f-from">From</label><input type="date" id="f-from"></div>
+            <div class="field"><label for="f-to">To</label><input type="date" id="f-to"></div>
+            <div class="field"><label for="f-user">Employee</label><select id="f-user"></select></div>
+            <div class="field"><label for="f-project">Project</label><select id="f-project"></select></div>
+            <div class="field">
+              <label for="f-status">Status</label>
+              <select id="f-status">
+                <option value="">All</option>
+                <option value="draft">Draft</option>
+                <option value="submitted">Submitted</option>
+              </select>
+            </div>
+            <div><button class="btn" id="f-apply">Apply</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <header>
+          <h2>Entries</h2>
+          <span class="sub" id="entries-summary"></span>
+        </header>
+        <div class="body flush table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Date</th><th>Employee</th><th>Project</th><th>Activity</th>
+                <th>Description</th><th class="num">Hours</th><th class="num">Cost</th>
+                <th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="entries-rows"></tbody>
+            <tfoot id="entries-foot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ PROJECTS ============================ -->
+    <section class="view" id="view-projects" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Projects</h1>
+          <p>Closed projects stay in reports but can no longer be selected.</p>
+        </div>
+        <button class="btn" id="new-project">New project</button>
+      </div>
+
+      <div class="card">
+        <div class="body flush table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Code</th><th>Name</th><th>Client</th><th>Type</th><th>Status</th>
+                <th class="num">Hours</th><th class="num">Cost</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="project-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================= PEOPLE ============================= -->
+    <section class="view" id="view-people" hidden>
+      <div class="view-head">
+        <div>
+          <h1>People</h1>
+          <p>Each person signs in with their own email. Rates drive the project cost figures.</p>
+        </div>
+        <button class="btn" id="new-user">Add person</button>
+      </div>
+
+      <div class="card">
+        <div class="body flush table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Code</th><th>Name</th><th>Email</th><th>Department</th>
+                <th>Role</th><th class="num">Rate</th><th class="num">Hours</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="user-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================== ACTIVITIES =========================== -->
+    <section class="view" id="view-activities" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Activities</h1>
+          <p>The task categories employees pick from.</p>
+        </div>
+        <button class="btn" id="new-activity">New activity</button>
+      </div>
+
+      <div class="card" style="max-width:640px;">
+        <div class="body flush table-wrap">
+          <table class="data">
+            <thead><tr><th>Activity</th><th class="num">Entries</th><th>Status</th><th></th></tr></thead>
+            <tbody id="activity-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================= MODALS ============================== -->
+  <dialog class="modal" id="project-modal">
+    <form method="dialog" id="project-form">
+      <header id="project-modal-title">New project</header>
+      <div class="body">
+        <input type="hidden" id="pm-id">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="field">
+            <label for="pm-code">Project code</label>
+            <input type="text" id="pm-code" maxlength="30" required placeholder="ACME-ERP">
+            <span class="hint">Cannot be changed later.</span>
+          </div>
+          <div class="field">
+            <label for="pm-client">Client</label>
+            <input type="text" id="pm-client" maxlength="120" placeholder="Acme Corp">
+          </div>
+          <div class="field span-2">
+            <label for="pm-name">Project name</label>
+            <input type="text" id="pm-name" maxlength="150" required placeholder="Acme ERP implementation">
+          </div>
+          <div class="checkline"><input type="checkbox" id="pm-billable" checked><label for="pm-billable">Billable</label></div>
+          <div class="checkline"><input type="checkbox" id="pm-active" checked><label for="pm-active">Open for time entry</label></div>
+        </div>
+      </div>
+      <footer>
+        <button type="button" class="btn secondary" data-close>Cancel</button>
+        <button type="button" class="btn" id="pm-save">Save project</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="user-modal">
+    <form method="dialog" id="user-form">
+      <header id="user-modal-title">Add person</header>
+      <div class="body">
+        <input type="hidden" id="um-id">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="field">
+            <label for="um-code">Employee code</label>
+            <input type="text" id="um-code" maxlength="30" required placeholder="EMP014">
+          </div>
+          <div class="field">
+            <label for="um-name">Full name</label>
+            <input type="text" id="um-name" maxlength="120" required placeholder="Priya Raman">
+          </div>
+          <div class="field span-2">
+            <label for="um-email">Work email (used to sign in)</label>
+            <input type="email" id="um-email" maxlength="120" required placeholder="priya.raman@company.com">
+          </div>
+          <div class="field">
+            <label for="um-dept">Department</label>
+            <input type="text" id="um-dept" maxlength="80" placeholder="Engineering">
+          </div>
+          <div class="field">
+            <label for="um-rate">Hourly rate</label>
+            <input type="number" id="um-rate" min="0" step="0.01" value="0">
+            <span class="hint">Used for project cost.</span>
+          </div>
+          <div class="field">
+            <label for="um-role">Role</label>
+            <select id="um-role">
+              <option value="employee">Employee</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <div class="checkline"><input type="checkbox" id="um-active" checked><label for="um-active">Active</label></div>
+          <div class="field span-2" id="um-password-field">
+            <label for="um-password">Temporary password</label>
+            <input type="text" id="um-password" maxlength="200" placeholder="At least 8 characters, a letter and a number">
+            <span class="hint">Share this with them; they will be prompted to change it.</span>
+          </div>
+        </div>
+      </div>
+      <footer>
+        <button type="button" class="btn secondary" data-close>Cancel</button>
+        <button type="button" class="btn" id="um-save">Save person</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="activity-modal">
+    <form method="dialog">
+      <header id="activity-modal-title">New activity</header>
+      <div class="body">
+        <input type="hidden" id="am-id">
+        <div class="field">
+          <label for="am-name">Activity name</label>
+          <input type="text" id="am-name" maxlength="80" required placeholder="Pair programming">
+        </div>
+        <div class="checkline"><input type="checkbox" id="am-active" checked><label for="am-active">Available for selection</label></div>
+      </div>
+      <footer>
+        <button type="button" class="btn secondary" data-close>Cancel</button>
+        <button type="button" class="btn" id="am-save">Save activity</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="reset-modal">
+    <form method="dialog">
+      <header>Reset password</header>
+      <div class="body">
+        <input type="hidden" id="rm-id">
+        <p style="margin-top:0" id="rm-who"></p>
+        <div class="field">
+          <label for="rm-password">New temporary password</label>
+          <input type="text" id="rm-password" maxlength="200" placeholder="At least 8 characters, a letter and a number">
+        </div>
+      </div>
+      <footer>
+        <button type="button" class="btn secondary" data-close>Cancel</button>
+        <button type="button" class="btn danger" id="rm-save">Reset password</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toasts"></div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

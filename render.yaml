@@ -1,0 +1,36 @@
+# One-click deploy to Render (https://render.com).
+#   1. Push this repo to GitHub.
+#   2. Render dashboard -> New -> Blueprint -> pick the repo.
+#   3. Set SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD when prompted.
+#
+# The disk keeps dsr.db, DSR.xlsx and backups/ across deploys. Without it every
+# deploy would start from an empty database.
+services:
+  - type: web
+    name: dsr-tracker
+    runtime: node
+    plan: starter          # a persistent disk requires a paid instance type
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    disk:
+      name: dsr-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SECURE_COOKIES
+        value: "true"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CURRENCY
+        value: INR
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
