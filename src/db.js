@@ -2,24 +2,33 @@
 
 const fs = require('fs');
 const path = require('path');
-const { createClient } = require('@libsql/client');
 const bcrypt = require('bcryptjs');
 const config = require('./config');
 
 /*
- * One client for both deployments: a local SQLite file (file:...) for a server
- * or laptop, or a hosted Turso database (libsql://...) on Vercel, where there
- * is no disk to keep a file on. Same SQL dialect either way.
+ * One interface for both deployments: a local SQLite file (file:...) for a
+ * server or laptop, or a hosted Turso database (libsql://...) on Vercel, where
+ * there is no disk to keep a file on. Same SQL dialect either way.
+ *
+ * The two cases load different clients, and the require is deliberately
+ * inside the branch:
+ *  - file: URLs need the native driver in '@libsql/client'. Requiring it loads
+ *    a platform binary via require(`@libsql/${target}`), a dynamic path that
+ *    Vercel's bundler cannot trace, so on Vercel it would be missing and every
+ *    request would crash with "Cannot find module".
+ *  - remote URLs use '@libsql/client/web', which is plain JavaScript over
+ *    HTTPS with no binary at all. It is all a hosted database needs.
  */
-
-if (config.isFileDb) {
-  fs.mkdirSync(path.dirname(path.resolve(config.dbUrl.slice('file:'.length))), { recursive: true });
+function makeClient() {
+  const options = { url: config.dbUrl, authToken: config.dbAuthToken || undefined };
+  if (config.isFileDb) {
+    fs.mkdirSync(path.dirname(path.resolve(config.dbUrl.slice('file:'.length))), { recursive: true });
+    return require('@libsql/client').createClient(options);
+  }
+  return require('@libsql/client/web').createClient(options);
 }
 
-const client = createClient({
-  url: config.dbUrl,
-  authToken: config.dbAuthToken || undefined,
-});
+const client = makeClient();
 
 function toObjects(rs) {
   return rs.rows.map((row) => {
