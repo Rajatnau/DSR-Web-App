@@ -64,8 +64,26 @@ app.get('/api/health', (_req, res) => {
 
 // Make sure tables exist before anything queries them. Runs once per process
 // (once per cold start on Vercel) and retries on the next request if it fails.
-app.use((req, _res, next) => {
-  db.ready().then(() => next(), next);
+// If the database cannot be reached, say so plainly instead of a generic 500:
+// on a fresh deployment this is nearly always a wrong URL or token, which is
+// fixed in the hosting dashboard. Driver messages ("HTTP status 401",
+// "password authentication failed") never include the token or password.
+app.use((req, res, next) => {
+  db.ready().then(
+    () => next(),
+    (err) => {
+      console.error('[db] could not connect or prepare the database:', err);
+      const reason = String(err?.message || err).split('\n')[0];
+      const hint =
+        'Check the database settings (DATABASE_URL, or TURSO_DATABASE_URL and TURSO_AUTH_TOKEN) ' +
+        'in your hosting dashboard, then redeploy.';
+      res.status(503).set('Cache-Control', 'no-store');
+      if (req.originalUrl.startsWith('/api/')) {
+        return res.json({ error: `Could not connect to the database: ${reason}. ${hint}` });
+      }
+      res.type('text/plain').send(`DSR Tracker could not connect to the database.\n\nReason: ${reason}\n\n${hint}\n`);
+    }
+  );
 });
 
 app.use(express.json({ limit: '256kb' }));
