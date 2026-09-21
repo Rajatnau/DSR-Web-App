@@ -239,6 +239,55 @@ function schema(kind) {
   `;
 }
 
+// Every column the app relies on, per table. Used to make sure that a table
+// which already exists is really ours before anything is written.
+const REQUIRED_COLUMNS = {
+  users: ['id', 'employee_code', 'name', 'email', 'password_hash', 'role', 'department', 'hourly_rate', 'is_active', 'must_reset', 'created_at'],
+  projects: ['id', 'code', 'name', 'client', 'is_billable', 'is_active', 'created_at'],
+  activities: ['id', 'name', 'is_active'],
+  entries: ['id', 'user_id', 'project_id', 'activity_id', 'entry_date', 'hours', 'rate_snapshot', 'description', 'ticket_ref', 'status', 'created_at', 'updated_at'],
+  sessions: ['sid', 'data', 'expires_at'],
+};
+
+/**
+ * Refuses to use a database that already holds same-named tables with a
+ * different shape — e.g. another application's `users` table. CREATE TABLE IF
+ * NOT EXISTS would silently skip such a table, and the app would then add its
+ * own tables and rows next to someone else's data. This check runs BEFORE any
+ * CREATE or INSERT, so a mismatched database is left completely untouched.
+ */
+async function assertTablesAreOurs() {
+  const tables = Object.keys(REQUIRED_COLUMNS);
+  const found = {}; // table -> Set(columns), only for tables that exist
+
+  if (engine.kind === 'postgres') {
+    const rows = await all(
+      `SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = ANY(?)`,
+      [tables]
+    );
+    for (const r of rows) (found[r.table_name] ??= new Set()).add(r.column_name);
+  } else {
+    for (const t of tables) {
+      const cols = await all('SELECT name FROM pragma_table_info(?)', [t]);
+      if (cols.length) found[t] = new Set(cols.map((c) => c.name));
+    }
+  }
+
+  const problems = [];
+  for (const [table, cols] of Object.entries(found)) {
+    const missing = REQUIRED_COLUMNS[table].filter((c) => !cols.has(c));
+    if (missing.length) problems.push(`"${table}" (missing: ${missing.join(', ')})`);
+  }
+  if (problems.length) {
+    throw new Error(
+      `This database already contains table(s) ${problems.join('; ')} that were not created by DSR Tracker, ` +
+        'so it probably belongs to another application. Nothing was changed. Connect DSR Tracker to its own, ' +
+        'empty database.'
+    );
+  }
+}
+
 const DEFAULT_ACTIVITIES = [
   'Development',
   'Code Review',
@@ -271,6 +320,7 @@ async function init() {
     await engine.query('PRAGMA foreign_keys = ON');
   }
 
+  await assertTablesAreOurs();
   await engine.execLocked(schema(engine.kind));
 
   // ON CONFLICT DO NOTHING throughout: on Vercel two cold starts can run this
