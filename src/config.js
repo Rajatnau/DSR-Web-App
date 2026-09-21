@@ -47,13 +47,36 @@ const dataDir = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.join(rootDir, 'data');
 
-// Where the data lives, picked from whichever variable is set:
-//  - DATABASE_URL / POSTGRES_URL = postgres://...  -> PostgreSQL. This is what
-//    Vercel's built-in database (Storage -> Postgres, run by Neon) injects.
-//  - DATABASE_URL / TURSO_DATABASE_URL = libsql://... -> Turso (hosted SQLite).
-//  - nothing                                        -> local SQLite file.
-const explicitDbUrl =
-  process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.TURSO_DATABASE_URL || '';
+// Where the data lives, picked in this order:
+//  1. DATABASE_URL, then POSTGRES_URL — postgres://… for PostgreSQL (what
+//     Vercel's Storage -> Postgres / Neon injects), or libsql://… for Turso.
+//  2. A *prefixed* Postgres variable such as DSR_DB_DATABASE_URL or
+//     MYDB_POSTGRES_URL. Vercel's "Connect Project" dialog lets you type a
+//     prefix, and it is easy to end up with one; recognising it saves having
+//     to rename variables by hand. Only postgres:// values count, and the
+//     *_UNPOOLED / *_NON_POOLING variants are skipped because the pooled URL
+//     is the right one for serverless.
+//  3. TURSO_DATABASE_URL — Turso.
+//  4. Nothing set -> local SQLite file.
+// Postgres found by any route wins over Turso: connecting a Postgres database
+// is taken as the intent to use it.
+function findPrefixedPostgres() {
+  const isPg = (v) => /^postgres(ql)?:\/\//i.test(v || '');
+  const keys = Object.keys(process.env).sort();
+  for (const suffix of ['_DATABASE_URL', '_POSTGRES_URL']) {
+    const key = keys.find((k) => k.endsWith(suffix) && isPg(process.env[k]));
+    if (key) return key;
+  }
+  return null;
+}
+
+const dbUrlSource =
+  (process.env.DATABASE_URL && 'DATABASE_URL') ||
+  (process.env.POSTGRES_URL && 'POSTGRES_URL') ||
+  findPrefixedPostgres() ||
+  (process.env.TURSO_DATABASE_URL && 'TURSO_DATABASE_URL') ||
+  null;
+const explicitDbUrl = dbUrlSource ? process.env[dbUrlSource] : '';
 const dbAuthToken = process.env.DATABASE_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || '';
 
 if (isVercel && !explicitDbUrl) {
@@ -90,6 +113,8 @@ module.exports = {
   dbAuthToken,
   isFileDb: dbUrl.startsWith('file:'),
   isPostgres,
+  // Name (never the value) of the variable the database URL came from.
+  dbUrlSource: dbUrlSource || 'local file',
   excelFile: path.join(dataDir, 'DSR.xlsx'),
   backupDir: path.join(dataDir, 'backups'),
   // Keep data/DSR.xlsx rewritten after every change. Needs a persistent disk,

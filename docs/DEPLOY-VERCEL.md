@@ -84,9 +84,10 @@ configured"*. That's fine: you'll add the database next and redeploy.
    - **Environments:** tick **Production**. Tick **Preview** and
      **Development** too if you want test deployments to work. They will then
      share this same database.
-   - **Custom environment variable prefix:** **leave it empty**, so the
-     variable is called exactly `DATABASE_URL`. The app also accepts
-     `POSTGRES_URL`, but any other prefix won't be found.
+   - **Custom environment variable prefix:** type **`DATABASE`** so the
+     variable is called `DATABASE_URL`. Any other prefix also works (for
+     example `DSR_DB` gives `DSR_DB_DATABASE_URL`); the app finds a
+     prefixed Postgres URL on its own.
    - Click **Connect**.
 
 Vercel has now added `DATABASE_URL` and some related variables to your
@@ -253,7 +254,7 @@ reload the failing page to see the exact error.
 | Error in the logs | Cause | Fix |
 |---|---|---|
 | `No database configured` | The database isn't connected, or you haven't redeployed since connecting it | Check **Settings → Environment Variables** has `DATABASE_URL` for Production, then **Redeploy** |
-| `No database configured` even though you connected it | You used a custom prefix, so the variable has a different name | Add a variable named `DATABASE_URL` with the same value, then redeploy |
+| The app still uses an old database after connecting Postgres | You haven't redeployed since connecting | **Redeploy**. The first line of the function log says which setting it used, e.g. `[db] Using PostgreSQL from DSR_DB_DATABASE_URL` |
 | `SESSION_SECRET must be set` | Missing variable | Add it (Step 3), then redeploy |
 | `password authentication failed` | The database password was rotated after deploying | Redeploy so the function gets the new `DATABASE_URL` |
 | `timeout` / `ECONNREFUSED` connecting to Postgres | Database paused or deleted, or the URL was edited by hand | Open the database in the Storage tab to wake it; check the URL wasn't changed |

@@ -256,6 +256,13 @@ const DEFAULT_ACTIVITIES = [
 ];
 
 async function init() {
+  // Variable name only, never its value: makes "which database am I on?"
+  // answerable from the hosting logs.
+  console.log(
+    `[db] Using ${config.isPostgres ? 'PostgreSQL' : config.isFileDb ? 'local SQLite file' : 'Turso (libSQL)'} ` +
+      `from ${config.dbUrlSource}`
+  );
+
   if (config.isFileDb) {
     // WAL keeps readers from blocking the writer. These pragmas are per
     // connection and only meaningful for a local SQLite file.
