@@ -59,7 +59,13 @@ app.use(
 // Health check answers before touching the database, so a platform probe can
 // tell "process up" apart from "database reachable".
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString(), excel: excel.status() });
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    // Which engine, and the variable NAME it came from (never its value).
+    database: { engine: db.kind === 'postgres' ? 'postgres' : config.isFileDb ? 'sqlite-file' : 'turso', source: config.dbUrlSource },
+    excel: excel.status(),
+  });
 });
 
 // Make sure tables exist before anything queries them. Runs once per process
@@ -163,12 +169,23 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 app.use((err, req, res, _next) => {
   const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
-  if (status >= 500) console.error('[error]', err);
+
+  // For server errors, hand back a short reference and the error's code/type
+  // (e.g. "42P01", "ECONNREFUSED", "TypeError") — enough to diagnose from the
+  // browser, but never the message, SQL, data or any setting value. The full
+  // error goes to the log under the same reference.
+  let diag = null;
+  if (status >= 500) {
+    const ref = Math.random().toString(36).slice(2, 8);
+    diag = { ref, code: String(err.code || err.name || 'Error').slice(0, 40) };
+    console.error(`[error] ref=${ref} ${req.method} ${req.originalUrl}`, err);
+  }
+
   const message = status >= 500 ? 'Something went wrong on the server' : err.message;
   if (res.headersSent) return res.end();
   // originalUrl, not path: req.url is rewritten while inside a mounted router.
-  if (req.originalUrl.startsWith('/api/')) return res.status(status).json({ error: message });
-  res.status(status).send(message);
+  if (req.originalUrl.startsWith('/api/')) return res.status(status).json({ error: message, ...(diag || {}) });
+  res.status(status).send(diag ? `${message} (ref ${diag.ref}, ${diag.code})` : message);
 });
 
 module.exports = app;
