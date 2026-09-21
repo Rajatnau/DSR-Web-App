@@ -82,8 +82,15 @@ const postgresSource = () =>
   (process.env.POSTGRES_URL && 'POSTGRES_URL') ||
   findPrefixedPostgres();
 
+// DSR_DATABASE_URL is this app's own name, so no integration or team-wide
+// shared variable will ever set it by accident. When present it wins over
+// everything, including DATABASE_PROVIDER: it is the "use exactly this
+// database" setting. (postgres://… or libsql://… with DATABASE_AUTH_TOKEN /
+// TURSO_AUTH_TOKEN.)
 let dbUrlSource;
-if (provider === 'turso') {
+if (process.env.DSR_DATABASE_URL) {
+  dbUrlSource = 'DSR_DATABASE_URL';
+} else if (provider === 'turso') {
   if (!process.env.TURSO_DATABASE_URL) {
     throw new Error('DATABASE_PROVIDER is "turso" but TURSO_DATABASE_URL is not set');
   }

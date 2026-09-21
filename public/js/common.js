@@ -42,7 +42,20 @@ async function api(path, { method = 'GET', body } = {}) {
   }
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
+
+  // A hosting platform's own error page (timeouts, crashes) is plain text or
+  // HTML, not JSON. Say that plainly instead of surfacing a JSON parse error.
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    const hint =
+      res.status === 504 || /TIMEOUT/i.test(text)
+        ? 'The server took too long to respond. Please try again in a minute.'
+        : 'The server is having a problem right now. Please try again in a minute.';
+    throw new ApiError(res.status, `${hint} (HTTP ${res.status})`);
+  }
+
   if (!res.ok) throw new ApiError(res.status, data.error || `Request failed (${res.status})`);
   return data;
 }

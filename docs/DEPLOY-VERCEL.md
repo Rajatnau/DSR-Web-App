@@ -265,7 +265,9 @@ reload the failing page to see the exact error.
 The app is connected to another application's database, usually through a
 `DATABASE_URL` from another project's storage connection or a team-wide
 shared variable. Add `DATABASE_PROVIDER` = `turso` (or `postgres`) to pick
-the right database explicitly, then redeploy. `/api/health` shows which
+the right database explicitly, or set `DSR_DATABASE_URL` to the exact
+connection string of this app's own database (it overrides everything), then
+redeploy. `/api/health` shows which
 setting is in use.
 
 **Can't sign in, no errors in the logs.** The seed admin is only created on the

@@ -373,9 +373,33 @@ let readyPromise = null;
  * per cold start on Vercel); a failure clears the memo so the next request
  * retries instead of the instance being stuck broken.
  */
+// A database that accepts the connection but never answers would otherwise
+// hold every request until the platform kills it (30 s on Vercel), and the
+// visitor sees the host's raw error page. Fail well before that instead.
+const READY_TIMEOUT_MS = 12_000;
+
+function withTimeout(promise) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `The database did not respond within ${READY_TIMEOUT_MS / 1000} seconds ` +
+              `(${engine.kind === 'postgres' ? 'PostgreSQL' : 'libSQL/Turso'} via ${config.dbUrlSource}). ` +
+              'It may be paused, overloaded or unreachable'
+          )
+        ),
+      READY_TIMEOUT_MS
+    );
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function ready() {
   if (!readyPromise) {
-    readyPromise = init().catch((err) => {
+    readyPromise = withTimeout(init()).catch((err) => {
       readyPromise = null;
       throw err;
     });
