@@ -261,6 +261,13 @@ reload the failing page to see the exact error.
 | `APP_TIMEZONE "…" is not a valid IANA timezone` | Typo | Use a name like `Asia/Kolkata` |
 | A warning mentioning `sslmode` | Informational message from the Postgres driver | Harmless; the connection is encrypted |
 
+**"This database already contains table(s) … not created by DSR Tracker".**
+The app is connected to another application's database, usually through a
+`DATABASE_URL` from another project's storage connection or a team-wide
+shared variable. Add `DATABASE_PROVIDER` = `turso` (or `postgres`) to pick
+the right database explicitly, then redeploy. `/api/health` shows which
+setting is in use.
+
 **Can't sign in, no errors in the logs.** The seed admin is only created on the
 very first start. Check who exists with `SELECT email FROM users;` in the Neon
 SQL Editor (Step 5).

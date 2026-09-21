@@ -70,14 +70,39 @@ function findPrefixedPostgres() {
   return null;
 }
 
-const dbUrlSource =
+// DATABASE_PROVIDER pins the choice when the automatic order above picks the
+// wrong database — e.g. a DATABASE_URL injected by another project's storage
+// connection or a team-wide shared variable that is hard to remove.
+//   turso    -> TURSO_DATABASE_URL, ignoring any Postgres settings
+//   postgres -> DATABASE_URL / POSTGRES_URL / a prefixed Postgres variable
+//   sqlite   -> the local file (not usable on Vercel)
+const provider = (process.env.DATABASE_PROVIDER || '').trim().toLowerCase();
+const postgresSource = () =>
   (process.env.DATABASE_URL && 'DATABASE_URL') ||
   (process.env.POSTGRES_URL && 'POSTGRES_URL') ||
-  findPrefixedPostgres() ||
-  (process.env.TURSO_DATABASE_URL && 'TURSO_DATABASE_URL') ||
-  null;
+  findPrefixedPostgres();
+
+let dbUrlSource;
+if (provider === 'turso') {
+  if (!process.env.TURSO_DATABASE_URL) {
+    throw new Error('DATABASE_PROVIDER is "turso" but TURSO_DATABASE_URL is not set');
+  }
+  dbUrlSource = 'TURSO_DATABASE_URL';
+} else if (provider === 'postgres') {
+  dbUrlSource = postgresSource();
+  if (!dbUrlSource) throw new Error('DATABASE_PROVIDER is "postgres" but no Postgres URL (DATABASE_URL / POSTGRES_URL) is set');
+} else if (provider === 'sqlite') {
+  dbUrlSource = null;
+} else if (provider) {
+  throw new Error(`DATABASE_PROVIDER "${process.env.DATABASE_PROVIDER}" is not recognised; use turso, postgres or sqlite`);
+} else {
+  dbUrlSource = postgresSource() || (process.env.TURSO_DATABASE_URL && 'TURSO_DATABASE_URL') || null;
+}
 const explicitDbUrl = dbUrlSource ? process.env[dbUrlSource] : '';
-const dbAuthToken = process.env.DATABASE_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || '';
+const dbAuthToken =
+  dbUrlSource === 'TURSO_DATABASE_URL'
+    ? process.env.TURSO_AUTH_TOKEN || process.env.DATABASE_AUTH_TOKEN || ''
+    : process.env.DATABASE_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || '';
 
 if (isVercel && !explicitDbUrl) {
   throw new Error(
