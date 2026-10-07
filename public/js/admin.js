@@ -499,6 +499,7 @@ function openUserModal(id = null) {
   $('#um-active').checked = u ? !!u.is_active : true;
   $('#um-password').value = '';
   $('#um-password-field').hidden = !!u;
+  $('#um-delete').hidden = !u || u.total_hours > 0;
   $('#user-modal').showModal();
 }
 
@@ -523,6 +524,23 @@ $('#um-save').addEventListener('click', (e) =>
       else await api('/api/admin/users', { method: 'POST', body });
       $('#user-modal').close();
       toast(id ? 'Person updated.' : 'Person added.', 'success');
+      loadUsers();
+    } catch (err) {
+      toastError(err);
+    }
+  })
+);
+
+$('#um-delete').addEventListener('click', (e) =>
+  withBusy(e.target, async () => {
+    const id = $('#um-id').value;
+    if (!id) return;
+    if (!confirm('Delete this person? This cannot be undone.')) return;
+
+    try {
+      await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+      $('#user-modal').close();
+      toast('Person deleted.', 'success');
       loadUsers();
     } catch (err) {
       toastError(err);

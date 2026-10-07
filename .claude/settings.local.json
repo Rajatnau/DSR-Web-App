@@ -3,7 +3,15 @@
     "allow": [
       "Bash(git add *)",
       "Bash(git commit -m 'Restore project delete functionality for zero-hour projects *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(curl -s --max-time 20 \"https://api.github.com/repos/Rajatnau/DSR-Web-App/commits/9976b66/status\")",
+      "Bash(node -e 'let d=\"\";process.stdin.on\\(\"data\",c=>d+=c\\).on\\(\"end\",\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\(\"State:\",j.state\\);\\(j.statuses||[]\\).forEach\\(s=>console.log\\(\"-\",s.context,\"|\",s.state,\"|\",s.description.slice\\(0,60\\)\\)\\)}\\)')",
+      "Bash(curl -s https://dsr-web-app.vercel.app/admin.html)",
+      "Bash(curl -s -I https://dsr-web-app.vercel.app/admin.html)",
+      "Bash(git commit -m 'Add delete functionality for users \\(people\\) *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(grep -E \"^\\(To|\\\\\\\\[|Updating\\)\")"
     ]
   }
 }

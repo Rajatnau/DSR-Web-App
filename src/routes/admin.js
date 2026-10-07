@@ -101,6 +101,38 @@ router.post('/users/:id/reset-password', v.asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+router.delete('/users/:id', v.asyncRoute(async (req, res) => {
+  const userId = v.id(req.params.id, 'User');
+
+  // Prevent deleting yourself
+  if (userId === req.user.id) {
+    throw v.badRequest('You cannot delete your own account');
+  }
+
+  // Check if the user has any time entries
+  const { count } = await db.get(
+    'SELECT COUNT(*) AS count FROM entries WHERE user_id = ?',
+    [userId]
+  );
+
+  if (count > 0) {
+    throw v.badRequest(`Cannot delete: this person has ${count} time entries. Deactivate them instead.`);
+  }
+
+  // Never allow deleting the last active administrator
+  const user = await db.get('SELECT role, is_active FROM users WHERE id = ?', [userId]);
+  if (user && user.role === 'admin' && user.is_active) {
+    const { n } = await db.get("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND is_active = 1");
+    if (n <= 1) throw v.badRequest('This is the only active administrator — promote someone else first');
+  }
+
+  const info = await db.run('DELETE FROM users WHERE id = ?', [userId]);
+  if (info.changes === 0) return res.status(404).json({ error: 'User not found' });
+
+  excel.scheduleSync();
+  res.json({ ok: true });
+}));
+
 /* ------------------------------------------------------------------ */
 /* Projects                                                            */
 /* ------------------------------------------------------------------ */
