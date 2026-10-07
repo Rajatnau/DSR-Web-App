@@ -152,6 +152,26 @@ router.put('/projects/:id', v.asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+router.delete('/projects/:id', v.asyncRoute(async (req, res) => {
+  const projectId = v.id(req.params.id, 'Project');
+
+  // Check if the project has any time entries
+  const { count } = await db.get(
+    'SELECT COUNT(*) AS count FROM entries WHERE project_id = ?',
+    [projectId]
+  );
+
+  if (count > 0) {
+    throw v.badRequest(`Cannot delete: this project has ${count} time entries. Untick "Open for time entry" to hide it instead.`);
+  }
+
+  const info = await db.run('DELETE FROM projects WHERE id = ?', [projectId]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Project not found' });
+
+  excel.scheduleSync();
+  res.json({ ok: true });
+}));
+
 /* ------------------------------------------------------------------ */
 /* Activities                                                          */
 /* ------------------------------------------------------------------ */

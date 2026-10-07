@@ -397,6 +397,7 @@ function openProjectModal(id = null) {
   $('#pm-client').value = p ? p.client : '';
   $('#pm-billable').checked = p ? !!p.is_billable : true;
   $('#pm-active').checked = p ? !!p.is_active : true;
+  $('#pm-delete').hidden = !p || p.total_hours > 0;
   $('#project-modal').showModal();
 }
 
@@ -419,6 +420,23 @@ $('#pm-save').addEventListener('click', (e) =>
       else await api('/api/admin/projects', { method: 'POST', body });
       $('#project-modal').close();
       toast(id ? 'Project updated.' : 'Project created.', 'success');
+      loadProjects();
+    } catch (err) {
+      toastError(err);
+    }
+  })
+);
+
+$('#pm-delete').addEventListener('click', (e) =>
+  withBusy(e.target, async () => {
+    const id = $('#pm-id').value;
+    if (!id) return;
+    if (!confirm('Delete this project? This cannot be undone.')) return;
+
+    try {
+      await api(`/api/admin/projects/${id}`, { method: 'DELETE' });
+      $('#project-modal').close();
+      toast('Project deleted.', 'success');
       loadProjects();
     } catch (err) {
       toastError(err);
